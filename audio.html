@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+    <head>
+        <title>Audio Player</title>
+        <style>
+            .btn{
+                display: block;
+                margin: 5px auto;
+                cursor: pointer;
+                border-radius: 25%;
+                color:darkturquoise;
+                border: 2px solid darkturquoise;
+                background-color: #fff;
+                width: 80px;
+                height: 50px;
+                font-size: 2em;
+            }
+            .hidden{
+                display: none;
+            }
+            .canvas{
+                width: 1400px;
+                height: 400px;
+                margin: 1rem auto;
+                cursor: pointer;
+            }
+        </style>
+        <script src="https://use.fontawesome.com/23c572417a.js"></script>
+    </head>
+    <body>
+        <canvas class="canvas"></canvas>
+        <button type="button" id="play_btn" class="btn">
+            <i class="fa fa-play" aria-hidden="true"></i>
+        </button>
+        <button type="button" id="pause_btn" class="btn hidden">
+            <i class="fa fa-pause" aria-hidden="true"></i>
+        </button>
+        <button type="button" id="reset_btn" class="btn">
+            <i class="fa fa-stop" aria-hidden="true"></i>
+        </button>
+        <audio></audio>
+        <script>
+            // Set up data variables
+            var duration,playing=false, played=false,reset=false,audioData,soundBuffer,
+            url="https://file-examples-com.github.io/uploads/2017/11/file_example_MP3_1MG.mp3";
+            var bars=400;
+
+            //Define setter functions
+            function setDuration(dur){
+            duration=dur;
+            }
+            function setPlayed(){
+                played=true;
+            }
+
+            function setSoundBuffer(buff){
+                soundBuffer=buff;
+            }
+
+            function setBlob(blob){
+                audioData=blob
+                setAudio();
+            }
+            function setAudio(){
+                audioElement.src = window.URL.createObjectURL(audioData);
+            }
+
+            //Define audio controls
+            function playSound(){
+                playing=true;
+                reset=false;
+                play_btn.classList.add('hidden');
+                pause_btn.classList.remove('hidden');
+            }
+            function pauseSound(){
+                playing=false;
+                reset=false;
+                audioElement.pause();
+                pause_btn.classList.add('hidden');
+                play_btn.classList.remove('hidden');
+            }
+            function resetSound(){
+                reset=true;
+                played=false;
+                playing=false;
+                audioElement.load();
+                setAudio();
+                pause_btn.classList.add('hidden');
+                play_btn.classList.remove('hidden');
+            }
+
+            //Pause playing
+            var pause_btn = document.getElementById('pause_btn');
+            pause_btn.addEventListener("click", function(){ 
+                pauseSound();
+            })
+
+            //Stop playing
+            var reset_btn = document.getElementById('reset_btn');
+            reset_btn.addEventListener("click", function(){ 
+                resetSound();
+            })
+
+            //Seek and play
+            const canvas = document.querySelector("canvas");
+            canvas.addEventListener("click", function(event){
+                let location=event.pageX;
+                let start=Math.ceil((location-8)*bars/1400);
+                let time=Math.ceil((location-8)*duration/1400)
+                resetSound();
+
+                setTimeout(()=>{
+                    playSound();
+                    // check if context is in suspended state (autoplay policy)
+                    if (audioContext.state === 'suspended') {
+                        audioContext.resume();
+                    }
+                    audioElement.currentTime=time;
+                    audioElement.play();
+                    setPlayed();
+                    draw(normalizeData(filterData(soundBuffer)),start);
+                },300)
+            })
+            
+            //Set up audio context
+            var audioContext = new (AudioContext || webkitAudioContext)();
+            // get the audio element
+            var audioElement = document.querySelector('audio');
+            // pass it into the audio context
+            const track = audioContext.createMediaElementSource(audioElement);
+            track.connect(audioContext.destination);
+
+            fetch(url)  // Fetch audio from url
+            .then(response => response.blob())
+            .then(blob => {
+                if(!reset) setBlob(blob);
+                blob.arrayBuffer()
+                .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))  // Decode audio
+                .then(buffer => {
+                    setSoundBuffer(buffer)
+                    setDuration(Math.floor(buffer.duration));
+                    draw(normalizeData(filterData(buffer)));
+                });
+            })
+
+            //Play the audio
+            var play_btn = document.getElementById('play_btn');
+            play_btn.addEventListener("click", function() {
+                playSound();
+                // check if context is in suspended state (autoplay policy)
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+                    audioElement.play();
+                if(!played){
+                    setPlayed();
+                    draw(normalizeData(filterData(soundBuffer)));
+                }
+            })
+
+            //Filter the audio buffer
+            const filterData = audioBuffer => {
+                const rawData = audioBuffer.getChannelData(0); // We only need to work with one channel of data
+                const samples = bars; // Number of samples we want to have in our final data set
+                const blockSize = Math.floor(rawData.length / samples); // the number of samples in each subdivision
+                const filteredData = [];
+                for (let i = 0; i < samples; i++) {
+                    let blockStart = blockSize * i; // the location of the first sample in the block
+                    let sum = 0;
+                    for (let j = 0; j < blockSize; j++) {
+                    sum = sum + Math.abs(rawData[blockStart + j]) // find the sum of all the samples in the block
+                    }
+                    filteredData.push(sum / blockSize); // divide the sum by the block size to get the average
+                }
+                return filteredData;
+            }
+
+            //Normalize the filtered data
+            const normalizeData = filteredData => {
+                const multiplier = Math.pow(Math.max(...filteredData), -1);
+                return filteredData.map(n => n * multiplier);
+            }
+
+            //Draw the graph
+            const draw = (normalizedData, start) => {
+                // Set up the canvas
+                const canvas = document.querySelector("canvas");
+                const dpr = window.devicePixelRatio || 1;
+                const padding = 20;
+                canvas.width = canvas.offsetWidth * dpr;
+                canvas.height = (canvas.offsetHeight + padding * 2) * dpr;
+                const ctx = canvas.getContext("2d");
+                ctx.scale(dpr, dpr);
+                ctx.translate(0, canvas.offsetHeight / 2 + padding); 
+                const width = canvas.offsetWidth / normalizedData.length;
+                let i=0;
+
+                for (i = 0; i < normalizedData.length; i++) {
+                    const x = width * i;
+                    let height = normalizedData[i] * canvas.offsetHeight - padding;
+                    if (height < 0) {
+                        height = 0;
+                    } else if (height > canvas.offsetHeight / 2) {
+                        height = height > canvas.offsetHeight / 2;
+                    }
+                    drawLineSegment(ctx, x, height, width, (i + 1) % 2, '#dcdcdc');
+                }
+                if(start){
+                    for (i = 0; i < start; i++) {
+                    const x = width * i;
+                    let height = normalizedData[i] * canvas.offsetHeight - padding;
+                    if (height < 0) {
+                        height = 0;
+                    } else if (height > canvas.offsetHeight / 2) {
+                        height = height > canvas.offsetHeight / 2;
+                    }
+                    drawLineSegment(ctx, x, height, width, (i + 1) % 2, '#cd5c5c');
+                    }
+                }
+                else i=0;
+                var plotter = setInterval(() => {
+                    if(i>=normalizedData.length) {
+                        resetSound();
+                        clearInterval(plotter);
+                    }
+                    const x = width * i;
+                    let height = normalizedData[i] * canvas.offsetHeight - padding;
+                    if (height < 0) {
+                        height = 0;
+                    } else if (height > canvas.offsetHeight / 2) {
+                        height = height > canvas.offsetHeight / 2;
+                    }
+                    drawLineSegment(ctx, x, height, width, (i + 1) % 2, '#cd5c5c');
+                    if(playing) i++;
+                    else if(reset) clearInterval(plotter);
+                }, 1000*duration/bars)
+            };
+
+            //Draw the line segments
+            const drawLineSegment = (ctx, x, y, width, isEven, color) => {
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = color; 
+                ctx.beginPath();
+                y = isEven ? y : -y;
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, y);
+                ctx.arc(x + width / 2, y, width / 2, 0, 0, isEven);
+                ctx.lineTo(x + width, 0);
+                ctx.stroke();
+            };
+        </script>
+    </body>
+</html>
